@@ -37,12 +37,40 @@ class BQ25731(EasyMCP2221.Device):
     CHARGER_OPTION_4_ADDR       =  0x3C
     VMIN_ACTIVE_PROT_ADDR       =  0x3E
 
+
+    MANUFACTURER_ID             =  0x40
+    DEVICE_ID                   =  0xD6
+
+    CHARGER_OPTION_0_RESET      =  0xE70E
+    LOW_PTM_RIPPLE_BIT
+    EN_OOA_BIT
+    050A
+    CHARGER_OPTION_1_RESET      =  0x3F00
+    B200
+    CHARGER_OPTION_3_RESET      =  0x0434
+    0430 ?? Rsense??
+    ADC_OPTION_RESET            =  0x2000
+    A0FF
+    #Charge voltage 0x1388
+    IIN_HOST_RESET              =  0x2000
+    0x4600
+    CHARGE_CURRENT_RESET        =  0x0080
+    #set 1.5A
+
+
+
+    CHARGER_OPTION_3_RESET_BIT  =  0x4000
+
     WORD_SIZE                   = 2
 
     def __init__(self):
         # Initialize the parent class (EasyMCP2221.Device)
         super().__init__()
 
+    def getMSByte(self,word) :
+        return (word >> 8) & 0xFF
+    def getLSByte(self,word) :
+        return word & 0xFF
     def bq25731_write(self,payload):
         self.I2C_write(addr=self.BQ25731_ADDR, data=bytes(payload))
     def bq25731_read(self, start_address,size):
@@ -52,9 +80,12 @@ class BQ25731(EasyMCP2221.Device):
         dataraw = self.I2C_read(addr=self.BQ25731_ADDR, size=size, kind='restart', timeout_ms=200)
         return dataraw
 
+    def word_write(self, address, payload):
+        self.bq25731_write([address, self.getLSByte(payload), self.getMSByte(payload)])
+
     def read_ID(self):
         id_raw =  self.bq25731_read(self.MANUFACTURER_ID_ADDR,self.WORD_SIZE)
-        if id_raw [0] == 0x40 and id_raw[1] == 0xD6 :
+        if id_raw [0] == self.MANUFACTURER_ID  and id_raw[1] == self.DEVICE_ID :
             print("Find TI BQ25731 chip")
             Find = True
         else :
@@ -78,19 +109,8 @@ class BQ25731(EasyMCP2221.Device):
             regMap.append([address[idx], data])
         return regMap
 
-        # Read NVM data from BQ25731
-
-        #nvm_data = []
-        #for i in range(self.NVM_SIZE):
-            # Read each byte from the NVM
-         #   data = self.i2c.read_byte_data(self.BQ25731_ADDR, self.NVM_START_ADDR + i)
-         #   nvm_data.append(data)
-          #  time.sleep(0.01)  # Small delay to ensure stable communication
-
-        return sectorData
-
     def reset_Chip(self):
-        self.bq25731_write([self.CHARGER_OPTION_3_ADDR,0x30,0x44])
+        self.word_write(self.CHARGER_OPTION_3_ADDR,self.CHARGER_OPTION_3_RESET | self.CHARGER_OPTION_3_RESET_BIT)
         print("Reset TI bq25731 chip")
 
 
