@@ -1,8 +1,3 @@
-
-
-
-
-
 import EasyMCP2221
 import time
 
@@ -40,20 +35,40 @@ class BQ25731(EasyMCP2221.Device):
 
     MANUFACTURER_ID             =  0x40
     DEVICE_ID                   =  0xD6
+    CLEAR_FAULT                 =  0x18
 
     CHARGER_OPTION_0_RESET      =  0xE70E
-    LOW_PTM_RIPPLE_BIT
-    EN_OOA_BIT
-    050A
+    EN_LWPWR_DIS_BIT            =  0x7FFF
+    WDTMR_ADJ_DIS_BIT           =  0x9FFF
+    PWM_FREQ_800K_BIT           =  0xFDFF
+    #050A
+
     CHARGER_OPTION_1_RESET      =  0x3F00
-    B200
+    EN_IBAT_BIT                 =  0x8000
+    RSNS_RAC_10mO_BIT           =  0xF7FF
+    RSNS_RSR_10mO_BIT           =  0xFBFF
+    EN_FAST_5MOHM_OFF_BIT       =  0xFEFF
+    #B200
+
     CHARGER_OPTION_3_RESET      =  0x0434
-    0430 ?? Rsense??
+   # 0430 ?? Rsense??
     ADC_OPTION_RESET            =  0x2000
-    A0FF
+
+    EN_ADC_CONV_CONT_BIT        =  0x8000
+    EN_ADC_CMPIN_BIT            =  0x0080
+    EN_ADC_VBUS_BIT             =  0x0040
+    EN_ADC_PSYS_BIT             =  0x0020
+    EN_ADC_IIN_BIT              =  0x0010
+    EN_ADC_IDCHG_BIT            =  0x0008
+    EN_ADC_ICHG_BIT             =  0x0004
+    EN_ADC_VSYS_BIT             =  0x0002
+    EN_ADC_VBAT_BIT             =  0x0001
+
+    #A0FF
     #Charge voltage 0x1388
     IIN_HOST_RESET              =  0x2000
-    0x4600
+    IIN_HOST_7A                 =  0x4600
+    #0x4600
     CHARGE_CURRENT_RESET        =  0x0080
     #set 1.5A
 
@@ -83,8 +98,11 @@ class BQ25731(EasyMCP2221.Device):
     def word_write(self, address, payload):
         self.bq25731_write([address, self.getLSByte(payload), self.getMSByte(payload)])
 
+    def word_read(self, address):
+        return self.bq25731_read(address,self.WORD_SIZE)
+
     def read_ID(self):
-        id_raw =  self.bq25731_read(self.MANUFACTURER_ID_ADDR,self.WORD_SIZE)
+        id_raw =  self.word_read(self.MANUFACTURER_ID_ADDR)
         if id_raw [0] == self.MANUFACTURER_ID  and id_raw[1] == self.DEVICE_ID :
             print("Find TI BQ25731 chip")
             Find = True
@@ -94,6 +112,36 @@ class BQ25731(EasyMCP2221.Device):
             print("DEVICE_ID read: " + hex(id_raw [1]))
             Find = False
         return Find
+
+    def get_Status(self):
+        status = self.word_read(self.CHARGER_STATUS_ADDR)
+        return status[1]
+
+    def get_fault(self):
+        fault = self.word_read(self.CHARGER_STATUS_ADDR)
+        return fault[0]
+
+    def clear_fault(self):
+        self.bq25731_write(self.CHARGER_STATUS_ADDR,self.CLEAR_FAULT)
+
+    def print_Status(self):
+        status = self.word_read(self.CHARGER_STATUS_ADDR)
+        if (status[1] & 0x80) :
+            print("STAT_AC : Input is present")
+        if (status[1] & 0x40) :
+            print("ICO_DONE : ICO is complete")
+        if (status[1] & 0x20) :
+            print("IN_VAP : Charger is operated in VAP mode")
+        if (status[1] & 0x10) :
+            print("IN_VINDPM : Charger is in VINDPM during forward mode, or voltage regulation during OTG mode")
+        if (status[1] & 0x08) :
+            print("IN_IIN_DPM : Charger is not in IIN_DPM during forward mode")
+        if (status[1] & 0x04) :
+            print("IN_FCHRG : Charger is in fast charger")
+        if (status[1] & 0x02) :
+            print("Reserved : Reserved")
+        if (status[1] & 0x01) :
+            print("IN_OTG : Charge is in OTG")
 
     def read_regmap(self):
 
@@ -113,6 +161,17 @@ class BQ25731(EasyMCP2221.Device):
         self.word_write(self.CHARGER_OPTION_3_ADDR,self.CHARGER_OPTION_3_RESET | self.CHARGER_OPTION_3_RESET_BIT)
         print("Reset TI bq25731 chip")
 
+    def initial_config_Chip(self):
+        #ChargeOption0 Register : disable low power mode, disable watchdog, set pwm frequency to 800 kHz
+        self.word_write(self.CHARGER_OPTION_0_ADDR,self.CHARGER_OPTION_0_RESET & self.EN_LWPWR_DIS_BIT & self.WDTMR_ADJ_DIS_BIT & self.PWM_FREQ_800K_BIT)
+        #ChargeOption1 Register : Enable the IBAT output buffer,
+        self.word_write(self.CHARGER_OPTION_1_ADDR,(self.CHARGER_OPTION_1_RESET | self.EN_IBAT_BIT) & self.RSNS_RAC_10mO_BIT & self.RSNS_RSR_10mO_BIT & self.EN_FAST_5MOHM_OFF_BIT )
+        #ADCOption Register : Enable conversion every seconds and all adc
+        self.word_write(self.ADC_OPTION_ADDR,self.ADC_OPTION_RESET | self.EN_ADC_CONV_CONT_BIT | self.EN_ADC_CMPIN_BIT | self.EN_ADC_VBUS_BIT | self.EN_ADC_PSYS_BIT | self.EN_ADC_IIN_BIT | self.EN_ADC_IDCHG_BIT | self.EN_ADC_ICHG_BIT | self.EN_ADC_VSYS_BIT | self.EN_ADC_VBAT_BIT )
+        #IIN_HOST Register : Set Input current limit to 7A (3.5A with 10 mOhms sense)
+        self.word_write( self.IIN_HOST_ADDR, self.IIN_HOST_7A )
+
+        print("Config TI bq25731 chip done")
 
     def print_regMap(self):
         # Read the NVM data
@@ -130,6 +189,8 @@ def main():
     if bq25731.read_ID() :
         bq25731.reset_Chip()
     bq25731.print_regMap()
+    bq25731.initial_config_Chip()
+    bq25731.print_Status()
 
 if __name__ == "__main__":
     main()
