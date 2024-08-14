@@ -69,6 +69,8 @@ class BQ25731(EasyMCP2221.Device):
     IIN_HOST_RESET              =  0x2000
     IIN_HOST_7A                 =  0x4600
     #0x4600
+    CHARGE_VOLTAGE_MASK         =  0x7FF8
+    CHARGE_CURRENT_MASK         =  0x1FC0
     CHARGE_CURRENT_RESET        =  0x0080
     #set 1.5A
 
@@ -88,7 +90,7 @@ class BQ25731(EasyMCP2221.Device):
         return word & 0xFF
     def bq25731_write(self,payload):
         self.I2C_write(addr=self.BQ25731_ADDR, data=bytes(payload))
-    def bq25731_read(self, start_address,size):
+    def bq25731_read(self, start_address,size=1):
         self.I2C_write(self.BQ25731_ADDR, [start_address], kind='nonstop')
 
         # Read max 100 bytes
@@ -121,8 +123,95 @@ class BQ25731(EasyMCP2221.Device):
         fault = self.word_read(self.CHARGER_STATUS_ADDR)
         return fault[0]
 
+    def get_IIN_DPM(self):
+        value = self.word_read(self.IIN_DPM_ADDR)
+        value = value[1]
+        if value == 0 :
+            value = 0.15
+        else :
+            value = 0.05 + (value*0.05)
+        return value
+
+    def get_ADCVBUS(self):
+        value = self.word_read(self.ADC_VBUS_ADDR)
+        value = value[1]
+        return value*0.096
+
+    def get_ADCPSYS(self):
+        value = self.word_read(self.ADC_VBUS_ADDR)
+        value = value[0]
+        return value*0.012
+
+    def get_ADCICHG(self):
+        value = self.word_read(self.ADC_IBAT_ADDR)
+        value = value[1]
+        return value*0.064
+
+    def get_ADCVSYS(self):
+        value = self.word_read(self.ADC_VSYS_ADDR)
+        value = value[1]
+        return ( 2.88 + (value*0.064) )
+
+    def get_ADCVBAT(self):
+        value = self.word_read(self.ADC_VSYS_ADDR)
+        value = value[0]
+        return ( 2.88 + (value*0.064) )
+
+    def get_ADCIIN(self):
+        value = self.word_read(self.ADC_IIN_ADDR)
+        value = value[1]
+        return value*0.05
+
+    def get_ChargeVoltage(self):
+        value = self.word_read(self.CHARGE_VOLTAGE_ADDR)
+        # Comment to return value in mV
+        value = (((value[1] & 0x7F) << 8) + value[0]) #>> 3
+        return value #*0.008
+
+    def get_ChargeCurrent(self):
+        value = self.word_read(self.CHARGE_CURRENT_ADDR)
+        value = (((value[1] & 0x1F) << 8) + value[0]) >> 6
+        return value * 0.064
+
+    def set_ChargeVoltage(self,value_mV):
+        if value_mV > 23000 or value_mV < 1024 :
+            print("Error : Charge voltage value is invalid, provide charge voltage range from 1024 mV to 23000 mV")
+        else :
+            value_mV = value_mV & self.CHARGE_VOLTAGE_MASK
+            self.word_write(self.CHARGE_VOLTAGE_ADDR,value_mV)
+            print("Set charge voltage to " + str(value_mV) + " mV")
+
+    def set_ChargeCurrent(self,value_A):
+        if value_A > 8.128 or value_A < 0 :
+            print("Error : Charge voltage value is invalid, provide charge voltage range from 0 A to 8.128 A")
+        else :
+            value_A = int(value_A/0.064)
+            value_A = ((value_A << 6) & self.CHARGE_CURRENT_MASK)
+            self.word_write(self.CHARGE_CURRENT_ADDR,value_A)
+            print("Set charge current to " + str((value_A >> 6)*0.064) + " A")
+
+
     def clear_fault(self):
         self.bq25731_write(self.CHARGER_STATUS_ADDR,self.CLEAR_FAULT)
+
+    def print_Fault(self):
+        status = self.word_read(self.CHARGER_STATUS_ADDR)
+        if (status[0] & 0x80) :
+            print("Fault ACOV")
+        if (status[0] & 0x40) :
+            print("Fault BATOC")
+        if (status[0] & 0x20) :
+            print("Fault ACOC")
+        if (status[0] & 0x10) :
+            print("Fault SYSOVP")
+        if (status[0] & 0x08) :
+            print("Fault VSYS_UVP")
+        if (status[0] & 0x04) :
+            print("Fault Force_Converter_Off")
+        if (status[0] & 0x02) :
+            print("Fault_OTG_OVP")
+        if (status[0] & 0x01) :
+            print("Fault_OTG_UVP")
 
     def print_Status(self):
         status = self.word_read(self.CHARGER_STATUS_ADDR)
@@ -190,7 +279,27 @@ def main():
         bq25731.reset_Chip()
     bq25731.print_regMap()
     bq25731.initial_config_Chip()
+    print(bq25731.set_ChargeVoltage(4800))
+    print(bq25731.set_ChargeCurrent(1.500))
     bq25731.print_Status()
+    if bq25731.get_fault() :
+        bq25731.print_Fault()
+    print(bq25731.get_IIN_DPM())
+    print(bq25731.get_ADCVBUS())
+    print(bq25731.get_ADCIIN())
+    print(bq25731.get_ADCVSYS())
+    print(bq25731.get_ADCICHG())
+    print(bq25731.get_ADCVBAT())
+    print(bq25731.get_ChargeVoltage())
+    print(bq25731.get_ChargeCurrent())
+    while 1 :
+        print(bq25731.get_IIN_DPM())
+        print(bq25731.get_ADCVBUS())
+        print(bq25731.get_ADCIIN())
+        print(bq25731.get_ADCVSYS())
+        print(bq25731.get_ADCICHG())
+        print(bq25731.get_ADCVBAT())
+        time.sleep(2)
 
 if __name__ == "__main__":
     main()
@@ -198,53 +307,3 @@ if __name__ == "__main__":
 
 
 
-
-"""
-
-
-# This is a sample Python script.
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
-
-
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    mcp = EasyMCP2221.Device()
-    MEM_ADDR = 0x28
-    MEM_POS = 6
-
-    mcp.I2C_write(
-        addr=MEM_ADDR,
-        data=b'\x26\x00'
-        )
-    # Seek EEPROM to position
-
-    mcp.I2C_write(
-        addr=MEM_ADDR,
-        data=MEM_POS.to_bytes(1, byteorder='little'),
-        kind='nonstop')
-
-    # Read max 100 bytes
-    dataraw = mcp.I2C_read(
-        addr=MEM_ADDR,
-        size=143,
-        kind='restart',
-        timeout_ms=200)
-
-    #data = data.split(b'\0')
-    listo = dataraw.hex()
-    n = 2
-    datalist = [listo[i:i + n] for i in range(0, len(listo), n)]
-    print(datalist)
-    Offset = 6
-    for val in datalist :
-        print("Address " + hex(Offset) + " = 0x" + val)
-        Offset +=1
-
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
-"""
