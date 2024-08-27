@@ -2,8 +2,9 @@ import EasyMCP2221
 import time
 
 class BQ25731(EasyMCP2221.Device):
+
+
     # Default I2C address for BQ25731
-    BQ25731_ADDR = 0x6B
     BQ25731_ADDR = 0x6B
 
     # BQ25731 Register Map addresses
@@ -135,38 +136,38 @@ class BQ25731(EasyMCP2221.Device):
     def get_ADCVBUS(self):
         value = self.word_read(self.ADC_VBUS_ADDR)
         value = value[1]
-        return value*0.096
+        return round(value*0.096,3)
 
     def get_ADCPSYS(self):
         value = self.word_read(self.ADC_VBUS_ADDR)
         value = value[0]
-        return value*0.012
+        return round(value*0.012,3)
 
     def get_ADCICHG(self):
         value = self.word_read(self.ADC_IBAT_ADDR)
         value = value[1]
-        return value*0.064
+        return round(value*0.064,3)
 
     def get_ADCVSYS(self):
         value = self.word_read(self.ADC_VSYS_ADDR)
         value = value[1]
-        return ( 2.88 + (value*0.064) )
+        return ( 2.88 + (round(value*0.064,3)) )
 
     def get_ADCVBAT(self):
         value = self.word_read(self.ADC_VSYS_ADDR)
         value = value[0]
-        return ( 2.88 + (value*0.064) )
+        return ( 2.88 + (round(value*0.064,3)) )
 
     def get_ADCIIN(self):
         value = self.word_read(self.ADC_IIN_ADDR)
         value = value[1]
-        return value*0.05
+        return round(value*0.05,3)
 
     def get_ChargeVoltage(self):
         value = self.word_read(self.CHARGE_VOLTAGE_ADDR)
         # Comment to return value in mV
         value = (((value[1] & 0x7F) << 8) + value[0]) #>> 3
-        return value #*0.008
+        return value/1000 #value*0.008
 
     def get_ChargeCurrent(self):
         value = self.word_read(self.CHARGE_CURRENT_ADDR)
@@ -274,32 +275,91 @@ class BQ25731(EasyMCP2221.Device):
 def main():
     bq25731 = BQ25731()
 
-
+#Check chip ID : read 0x40 in reg 0x2E and 0xD6 in reg 2F
     if bq25731.read_ID() :
+        #Reset chip by set bit 6 to 1 in reg 0x35
         bq25731.reset_Chip()
+    #Debug print
     bq25731.print_regMap()
+
+    #Set initial config
+    # ChargeOption0 Register : disable low power mode, disable watchdog, set pwm frequency to 800 kHz
+    # Write 0x15 in reg 0x01 and 0x0E in reg 0x00
+    # ChargeOption1 Register : Enable the IBAT output buffer,
+    # Write 0xB2 in reg 0x31 and 0x00 in reg 0x30
+    # ADCOption Register : Enable conversion every seconds and all adc
+    # Write 0xA0 in reg 0x3B and 0xFF in reg 0x3A
+    # IIN_HOST Register : Set Input current limit to 7A (3.5A with 10 mOhms sense)
+    # Write 0x46 in reg 0xOF and 0x00 in reg 0x0E
     bq25731.initial_config_Chip()
-    print(bq25731.set_ChargeVoltage(4800))
+
+    #Set charge voltage to 5.5V, Write 0x15 in reg 0xO5 and 0x78 in reg 0x04
+    print(bq25731.set_ChargeVoltage(5500))
+    #Set charge current 1.5A, Write 0x03 in reg 0x03 and 0x40 in reg 0x02
     print(bq25731.set_ChargeCurrent(1.500))
+
+    # check if reg 0x21 is equal to 0x84, charger connected and fast mode charge enable
     bq25731.print_Status()
+    # check if no fault occurs reg 0x20 is equal to 0x00
     if bq25731.get_fault() :
         bq25731.print_Fault()
-    print(bq25731.get_IIN_DPM())
-    print(bq25731.get_ADCVBUS())
-    print(bq25731.get_ADCIIN())
-    print(bq25731.get_ADCVSYS())
-    print(bq25731.get_ADCICHG())
-    print(bq25731.get_ADCVBAT())
-    print(bq25731.get_ChargeVoltage())
-    print(bq25731.get_ChargeCurrent())
-    while 1 :
-        print(bq25731.get_IIN_DPM())
-        print(bq25731.get_ADCVBUS())
-        print(bq25731.get_ADCIIN())
-        print(bq25731.get_ADCVSYS())
-        print(bq25731.get_ADCICHG())
-        print(bq25731.get_ADCVBAT())
-        time.sleep(2)
+
+    C_1=True
+    Fault=False
+    previousVbat = 0
+    maxVbat = 0
+    fast_charge_threshold = -0.06
+    SPACE_STUFFING = 15
+
+    log="Vbus(V) |".rjust(SPACE_STUFFING) + "Ibus(A) |".rjust(SPACE_STUFFING) + "VBat(V) |".rjust(SPACE_STUFFING) + "IBat(A) |".rjust(SPACE_STUFFING) + "\u0394Vbat(V) |".rjust(SPACE_STUFFING) + "Vset(V) |".rjust(SPACE_STUFFING) + "ISet(A)".rjust(SPACE_STUFFING)
+    log+="\n"
+
+    log+= (str(bq25731.get_ADCVBUS()) + " |").rjust(SPACE_STUFFING)
+    log+= (str(bq25731.get_ADCIIN()) + " |").rjust(SPACE_STUFFING)
+    log+= (str(bq25731.get_ADCVBAT()) + " |").rjust(SPACE_STUFFING)
+    log+= (str(bq25731.get_ADCICHG()) + " |").rjust(SPACE_STUFFING)
+    log+= (str(bq25731.get_ADCVBAT() - previousVbat) + " |").rjust(SPACE_STUFFING)
+    previousVbat = bq25731.get_ADCVBAT()
+    log+= (str(bq25731.get_ChargeVoltage()) + " |").rjust(SPACE_STUFFING)
+    log+= (str(bq25731.get_ChargeCurrent()) + " |").rjust(SPACE_STUFFING)
+    log+= "\n"
+    print(log)
+
+    #Do every minute
+    while C_1 :
+        #Read Vbat, read and save reg 0x2C valur
+        Vbat=bq25731.get_ADCVBAT()
+        if maxVbat < previousVbat :
+            #Save maximum voltage battery seen during charge
+            maxVbat = previousVbat
+        #compute actual Vbat minus Max voltage battery seen
+        Delta_Vbat = Vbat - maxVbat
+        #Save Vbat
+        previousVbat = Vbat
+        log += (str(bq25731.get_ADCVBUS()) + " |").rjust(SPACE_STUFFING)
+        log += (str(bq25731.get_ADCIIN()) + " |").rjust(SPACE_STUFFING)
+        log += (str(bq25731.get_ADCVBAT()) + " |").rjust(SPACE_STUFFING)
+        log += (str(bq25731.get_ADCICHG()) + " |").rjust(SPACE_STUFFING)
+        log += (str(round(Delta_Vbat,3)) + " |").rjust(SPACE_STUFFING)
+        log += (str(bq25731.get_ChargeVoltage()) + " |").rjust(SPACE_STUFFING)
+        log += (str(bq25731.get_ChargeCurrent()) + " |").rjust(SPACE_STUFFING)
+        log += "\n"
+        print(log)
+        time.sleep(30)
+        #
+        bq25731.print_Status()
+        if bq25731.get_fault() :
+            bq25731.print_Fault()
+            Fault=True
+            C_1=False
+        #If Vbat have decrease stop charge
+        if Delta_Vbat < fast_charge_threshold :
+            C_1=False
+
+    #Set charge current to 0A, Write 0x00 in reg 0x03 and 0x00 in reg 0x02
+    print(bq25731.set_ChargeCurrent(0))
+
+
 
 if __name__ == "__main__":
     main()
