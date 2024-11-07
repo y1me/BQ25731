@@ -75,6 +75,10 @@ class BQ25731(EasyMCP2221.Device):
     CHARGE_CURRENT_RESET        =  0x0080
     #set 1.5A
 
+    PROCHOTOPTION1_RESET        =  0x41A0
+
+    EN_PP_BATPRES_BIT           =  0x0002
+
 
 
     CHARGER_OPTION_3_RESET_BIT  =  0x4000
@@ -214,6 +218,25 @@ class BQ25731(EasyMCP2221.Device):
         if (status[0] & 0x01) :
             print("Fault_OTG_UVP")
 
+    def print_ProchotStatus(self):
+        status = self.word_read(self.PROCHOT_STATUS_ADDR)  # Read the PROCHOT_STATUS register
+        if (status[0] & 0x80):
+            print("STAT_VINDPM : Profile VINDPM is set")
+        if (status[0] & 0x40):
+            print("STAT_COMP : Profile CMPOUT is set")
+        if (status[0] & 0x20):
+            print("STAT_ICRIT : Profile ICRIT is set")
+        if (status[0] & 0x10):
+            print("STAT_INOM : Profile INOM is set")
+        if (status[0] & 0x08):
+            print("STAT_IDCHG1 : Profile IDCHG1 is set")
+        if (status[0] & 0x04):
+            print("STAT_VSYS : Profile VSYS is set")
+        if (status[0] & 0x02):
+            print("STAT_Battery_Removal : Profile Battery Removal is set")
+        if (status[0] & 0x01):
+            print("STAT_Adapter_Removal : PROCHOT Profile Adapter Removal is set")
+
     def print_Status(self):
         status = self.word_read(self.CHARGER_STATUS_ADDR)
         if (status[1] & 0x80) :
@@ -232,7 +255,6 @@ class BQ25731(EasyMCP2221.Device):
             print("Reserved : Reserved")
         if (status[1] & 0x01) :
             print("IN_OTG : Charge is in OTG")
-
     def read_regmap(self):
 
         sectorData = bytearray()
@@ -260,6 +282,8 @@ class BQ25731(EasyMCP2221.Device):
         self.word_write(self.ADC_OPTION_ADDR,self.ADC_OPTION_RESET | self.EN_ADC_CONV_CONT_BIT | self.EN_ADC_CMPIN_BIT | self.EN_ADC_VBUS_BIT | self.EN_ADC_PSYS_BIT | self.EN_ADC_IIN_BIT | self.EN_ADC_IDCHG_BIT | self.EN_ADC_ICHG_BIT | self.EN_ADC_VSYS_BIT | self.EN_ADC_VBAT_BIT )
         #IIN_HOST Register : Set Input current limit to 7A (3.5A with 10 mOhms sense)
         self.word_write( self.IIN_HOST_ADDR, self.IIN_HOST_7A )
+        #ProchotOption1 : Set battery removal detection
+        self.word_write( self.PROCHOT_OPTION_1_ADDR, self.PROCHOTOPTION1_RESET | self.EN_PP_BATPRES_BIT )
 
         print("Config TI bq25731 chip done")
 
@@ -288,7 +312,7 @@ def main():
     # ChargeOption1 Register : Enable the IBAT output buffer,
     # Write 0xB2 in reg 0x31 and 0x00 in reg 0x30
     # ADCOption Register : Enable conversion every seconds and all adc
-    # Write 0xA0 in reg 0x3B and 0xFF in reg 0x3A
+    # Writ=e 0xA0 in reg 0x3B and 0xFF in reg 0x3A
     # IIN_HOST Register : Set Input current limit to 7A (3.5A with 10 mOhms sense)
     # Write 0x46 in reg 0xOF and 0x00 in reg 0x0E
     bq25731.initial_config_Chip()
@@ -297,6 +321,7 @@ def main():
     print(bq25731.set_ChargeVoltage(5500))
     #Set charge current 1.5A, Write 0x03 in reg 0x03 and 0x40 in reg 0x02
     print(bq25731.set_ChargeCurrent(1.500))
+
 
     # check if reg 0x21 is equal to 0x84, charger connected and fast mode charge enable
     bq25731.print_Status()
@@ -348,13 +373,17 @@ def main():
         time.sleep(30)
         #
         bq25731.print_Status()
+        bq25731.print_Fault()
+        bq25731.print_ProchotStatus()
         if bq25731.get_fault() :
             bq25731.print_Fault()
             Fault=True
             C_1=False
+            C_1 = True
         #If Vbat have decrease stop charge
         if Delta_Vbat < fast_charge_threshold :
             C_1=False
+            C_1 = True
 
     #Set charge current to 0A, Write 0x00 in reg 0x03 and 0x00 in reg 0x02
     print(bq25731.set_ChargeCurrent(0))
